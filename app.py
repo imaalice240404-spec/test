@@ -24,6 +24,7 @@ def get_config(keys):
     return None
 
 S_URL = get_config(["SUPABASE_URL"])
+st.error(f"目前讀取到的 Supabase 網址是：{S_URL}")
 S_KEY = get_config(["SUPABASE_KEY"])
 ADMIN_ID = (get_config(["ADMIN_ID"]) or "admin").upper()
 
