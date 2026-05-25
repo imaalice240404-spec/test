@@ -473,3 +473,186 @@ with main_tab2:
                             for t in found_texts:
                                 hl_t = t.replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
                                 st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
+# ==========================================
+# 🗺️ Tab 3：宏觀專利大數據與競爭快篩
+# ==========================================
+with main_tab3:
+    st.markdown("雙軌解析摘要與請求項，產出技術功效矩陣，並建立**對手競爭前案快篩庫**。")
+    uploaded_excel_t3 = st.file_uploader("請上傳從 TWPAT 匯出的 Excel (有效專利/競爭對手)", type=["xlsx", "xls", "csv"], key="excel_up_t3")
+
+    if uploaded_excel_t3:
+        try:
+            df = pd.read_csv(uploaded_excel_t3) if uploaded_excel_t3.name.endswith('.csv') else pd.read_excel(uploaded_excel_t3)
+            st.success(f"✅ 成功載入資料！共計 {len(df)} 筆專利。")
+            
+            sub_t1, sub_t2, sub_t3, sub_t4, sub_t5, sub_t6 = st.tabs(["🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區", "🧠 AI 技術功效矩陣", "🗄️ 競爭前案快篩庫", "👑 核心地雷探勘"])
+            
+            app_col = next((col for col in df.columns if '申請人' in col or '權人' in col), None)
+            date_col = next((col for col in df.columns if '申請日' in col or '公開日' in col or '公告日' in col), None)
+            ipc_col = next((col for col in df.columns if 'IPC' in col.upper()), None)
+            title_col = next((col for col in df.columns if '專利名稱' in col or '標題' in col), None)
+            abs_col = next((col for col in df.columns if '摘要' in col), None)
+            num_col = next((col for col in df.columns if '號' in col and ('公開' in col or '公告' in col or '申請' in col)), None)
+            claim_col = next((col for col in df.columns if '申請專利範圍' in col or '請求項' in col), None)
+
+            with sub_t1:
+                if app_col:
+                    top_app = df[app_col].value_counts().reset_index().head(10)
+                    top_app.columns = ['公司名稱', '專利數量']
+                    st.plotly_chart(px.bar(top_app, x='專利數量', y='公司名稱', orientation='h', color='專利數量', color_continuous_scale='Blues').update_layout(yaxis={'categoryorder':'total ascending'}), use_container_width=True)
+
+            with sub_t2:
+                if date_col:
+                    df['年份'] = df[date_col].astype(str).str[:4]
+                    yt = df['年份'].value_counts().reset_index().sort_values('年份')
+                    yt.columns = ['年份', '專利數量']
+                    st.plotly_chart(px.line(yt[yt['年份'].str.isnumeric()], x='年份', y='專利數量', markers=True, line_shape='spline', color_discrete_sequence=['#ff7f0e']), use_container_width=True)
+
+            with sub_t3:
+                if ipc_col:
+                    df['IPC_四階'] = df[ipc_col].apply(lambda x: str(x).split(';')[0].split('|')[0].split('(')[0].strip() if not pd.isna(x) else "未知")
+                    ipc_d = df['IPC_四階'].value_counts().reset_index().head(15)
+                    ipc_d.columns = ['IPC四階', '數量']
+                    fig3 = px.pie(ipc_d, values='數量', names='IPC四階', hole=0.4)
+                    fig3.update_traces(textposition='inside', textinfo='percent+label')
+                    st.plotly_chart(fig3, use_container_width=True)
+
+            with sub_t4:
+                st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
+                if abs_col and title_col and num_col:
+                    analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", 1, min(len(df), 30), min(len(df), 15), key="slider_t3")
+                    if st.button("🚀 啟動雙軌解析", use_container_width=True, key="btn_mat_t3"):
+                        with st.spinner("交叉比對摘要與請求項..."):
+                            try:
+                                sample_df = df.head(analyze_count)
+                                p_data = "".join([f"[{str(row[num_col])}] {str(row[title_col])} | 摘要：{str(row[abs_col])[:300]} | 請求項：{str(row[claim_col])[:500] if claim_col else '無'}\n" for _, row in sample_df.iterrows()])
+                                # 💡 修改點：被動元件專屬的技術功效矩陣維度
+                                prompt = f'''輸出JSON。矩陣維度X:["提升電容/電感/電阻值", "降低ESR/ESL", "提升耐壓與絕緣性", "改善高頻特性與散熱", "提升結構強度與可靠度", "降低製造成本與微型化"]。維度Y:["介電層與磁性材料配方", "內部電極結構與排列", "外部端電極與封裝", "陶瓷燒結與薄膜製程", "導電漿料與印刷技術", "散熱基板與絕緣層"]。\n{{ "matrix": [{{"專利號": "XXX", "技術手段": "選項", "達成功效": "選項"}}], "top_patents": [{{"專利號": "XXX", "專利名稱": "XXX", "威脅度": "🔴極高/🟡中等", "入選理由": "..."}}] }}\n資料：{p_data}'''
+                                res = model.generate_content(prompt)
+                                cln = res.text.replace('```json','').replace('```','').strip()
+                                st.session_state.ai_analysis_result = json.loads(cln[cln.find('{'):cln.rfind('}')+1])
+                                st.success("✅ 解析完成！")
+                            except: st.error("分析失敗")
+
+                if st.session_state.ai_analysis_result:
+                    st.plotly_chart(px.density_heatmap(pd.DataFrame(st.session_state.ai_analysis_result["matrix"]), y='技術手段', x='達成功效', text_auto=True, color_continuous_scale='Reds'), use_container_width=True)
+
+            with sub_t5:
+                st.markdown("### 🗄️ 競爭前案快篩庫 (Triage Database)")
+                c_stat, c_clr = st.columns([4, 1])
+                c_stat.info(f"🗄️ 目前累積： **{len(st.session_state.comp_database)}** 筆")
+                if c_clr.button("🗑️ 清空", use_container_width=True, key="clr_comp_t3"): st.session_state.comp_database = []; st.rerun()
+
+                if abs_col and title_col and num_col and app_col:
+                    cs2, cb2 = st.columns([2, 1])
+                    b_range = cs2.slider("批次快篩區間", 1, len(df), (1, min(15, len(df))), key="sl_c_t3")
+                    if cb2.button("🤖 啟動快篩", use_container_width=True, key="btn_c_t3"):
+                        with st.spinner("掃描對手專利..."):
+                            try:
+                                s_df = df.iloc[b_range[0]-1 : b_range[1]]
+                                p_data_c = "".join([f"[{str(r[num_col])}] 公司：{str(r[app_col])} | {str(r[title_col])} | 摘要：{str(r[abs_col])[:250]}\n" for _, r in s_df.iterrows()])
+                                # 💡 修改點：競爭者快篩的被動元件大分類
+                                prompt_c = f'''輸出JSON。分類:["MLCC積層陶瓷電容", "電阻器與感測元件", "電感與磁性元件", "高頻元件與濾波器", "製程設備與測試", "封裝材料與其他"]。\n{{ "database": [{{"專利號": "XXX", "專利名稱": "XXX", "申請人": "XXX", "大分類": "選項", "特殊機構": "15字", "達成功效": "20字"}}] }}\n資料：{p_data_c}'''
+                                res_c = model.generate_content(prompt_c)
+                                cln_c = res_c.text.replace('```json','').replace('```','').strip()
+                                new_db = json.loads(cln_c[cln_c.find('{'):cln_c.rfind('}')+1]).get("database", [])
+                                ex_p = [p['專利號'] for p in st.session_state.comp_database]
+                                for item in new_db:
+                                    if item['專利號'] not in ex_p: st.session_state.comp_database.append(item)
+                                st.success(f"匯入 {len(new_db)} 筆！")
+                            except: st.error("失敗")
+
+                if st.session_state.comp_database:
+                    st.markdown("---")
+                    c1, c2, c3 = st.columns(3)
+                    f_com = c1.multiselect("🏢 篩選『對手公司』", list(set([i.get("申請人", "未知") for i in st.session_state.comp_database])), key="fc_t3")
+                    f_sys = c2.multiselect("📂 篩選『系統分類』", ["MLCC積層陶瓷電容", "電阻器與感測元件", "電感與磁性元件", "高頻元件與濾波器", "製程設備與測試", "封裝材料與其他"], key="fs_t3")
+                    s_q = c3.text_input("🔍 關鍵字", key="sq_t3")
+
+                    db_f = st.session_state.comp_database
+                    if f_com: db_f = [i for i in db_f if i.get("申請人") in f_com]
+                    if f_sys: db_f = [i for i in db_f if i.get("大分類") in f_sys]
+                    if s_q: db_f = [i for i in db_f if s_q in str(i)]
+
+                    for p in db_f:
+                        with st.container(border=True):
+                            st.markdown(f"**[{p.get('專利號')}] {p.get('專利名稱')}**")
+                            sc1, sc2 = st.columns(2)
+                            sc1.info(f"🏢 {p.get('申請人')}")
+                            sc2.warning(f"📂 {p.get('大分類')}")
+                            sc3, sc4 = st.columns(2)
+                            sc3.error(f"⚙️ {p.get('特殊機構')}")
+                            sc4.success(f"🎯 {p.get('達成功效')}")
+                            st.markdown(f"👉 複製 `{p.get('專利號')}` 去 Tab 1/2 分析！")
+
+            with sub_t6:
+                st.markdown("### 👑 核心地雷探勘 (Killer Patents)")
+                if st.session_state.ai_analysis_result:
+                    for p in st.session_state.ai_analysis_result.get("top_patents", []):
+                        with st.container(border=True):
+                            c = "red" if "高" in p.get("威脅度", "") else "orange"
+                            st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
+                            st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"檔案讀取失敗，錯誤訊息：{e}")
+
+# ==========================================
+# 💡 Tab 4：研發專屬彈藥庫 (Excel)
+# ==========================================
+with main_tab4:
+    st.markdown("### 🛠️ 研發解題靈感與開源技術庫")
+    up_rd = st.file_uploader("上傳 Excel (已篩選為失效專利)", type=["xlsx", "xls", "csv"], key="up_rd_t4")
+
+    if up_rd:
+        try:
+            df_r = pd.read_csv(up_rd) if up_rd.name.endswith('.csv') else pd.read_excel(up_rd)
+            st.success(f"✅ 載入 {len(df_r)} 筆。")
+            t_col = next((c for c in df_r.columns if '標題' in c or '名稱' in c), None)
+            a_col = next((c for c in df_r.columns if '摘要' in c), None)
+            n_col = next((c for c in df_r.columns if '號' in c), None)
+            c_col = next((c for c in df_r.columns if '請求項' in c or '範圍' in c), None)
+
+            st.markdown("---")
+            rs1, rs2 = st.columns([4, 1])
+            rs1.info(f"🗄️ 彈藥庫累積： **{len(st.session_state.rd_database)}** 筆")
+            if rs2.button("🗑️ 清空", use_container_width=True, key="c_rd_t4"): st.session_state.rd_database = []; st.rerun()
+
+            if a_col and t_col and n_col:
+                r_s, r_b = st.columns([2, 1])
+                br_rd = r_s.slider("批次處理區間", 1, len(df_r), (1, min(15, len(df_r))), key="sl_rd_t4")
+                if r_b.button("🤖 寫入彈藥庫", use_container_width=True, key="btn_rd_t4"):
+                    with st.spinner("解讀專利中..."):
+                        try:
+                            s_df_r = df_r.iloc[br_rd[0]-1 : br_rd[1]]
+                            pr_data = "".join([f"[{str(r[n_col])}] {str(r[t_col])} | 摘要：{str(r[a_col])[:250]}\n" for _, r in s_df_r.iterrows()])
+                            # 💡 修改點：研發失效技術庫的被動元件大分類
+                            pr_rd = f'''輸出JSON。分類:["電容技術(MLCC/固態)", "電阻技術(晶片/繞線)", "電感與磁性元件", "高頻元件(濾波/天線)", "先進製程與材料配方", "封裝散熱與其他"]。\n{{ "database": [{{"專利號": "XXX", "專利名稱": "XXX", "大分類": "選項", "特殊機構": "15字", "達成功效": "20字", "核心解法": "白話文原理"}}] }}\n資料：{pr_data}'''
+                            res_rd = model.generate_content(pr_rd)
+                            cln_rd = res_rd.text.replace('```json','').replace('```','').strip()
+                            new_rdb = json.loads(cln_rd[cln_rd.find('{'):cln_rd.rfind('}')+1]).get("database", [])
+                            ex_rp = [p['專利號'] for p in st.session_state.rd_database]
+                            for item in new_rdb:
+                                if item['專利號'] not in ex_rp: st.session_state.rd_database.append(item)
+                            st.success(f"寫入 {len(new_rdb)} 筆！")
+                        except: st.error("失敗")
+
+            if st.session_state.rd_database:
+                st.markdown("---")
+                rc1, rc2 = st.columns(2)
+                f_rcat = rc1.multiselect("🏷️ 『大分類』", ["電容技術(MLCC/固態)", "電阻技術(晶片/繞線)", "電感與磁性元件", "高頻元件(濾波/天線)", "先進製程與材料配方", "封裝散熱與其他"], key="f_rc_t4")
+                s_rq = rc2.text_input("🎯 關鍵字搜尋", key="sq_r_t4")
+
+                db_r = st.session_state.rd_database
+                if f_rcat: db_r = [i for i in db_r if i.get("大分類") in f_rcat]
+                if s_rq: db_r = [i for i in db_r if s_rq in str(i)]
+
+                for p in db_r:
+                    with st.container(border=True):
+                        st.markdown(f"**[{p.get('專利號')}] {p.get('專利名稱')}**")
+                        st.markdown("🟢 **【開源技術庫：免授權直接參考】**")
+                        t1, t2, t3 = st.columns(3)
+                        t1.info(f"📂 {p.get('大分類')}")
+                        t2.warning(f"⚙️ {p.get('特殊機構')}")
+                        t3.error(f"🎯 {p.get('達成功效')}")
+                        st.markdown(f"> **💡 核心解法：** {p.get('核心解法')}")
+        except: st.error("檔案讀取失敗")
