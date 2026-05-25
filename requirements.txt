@@ -7,3 +7,4 @@ pypdfium2
 python-docx
 plotly
 Pillow
+openpyxl
