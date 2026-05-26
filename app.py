@@ -1042,4 +1042,4 @@ elif st.session_state.radio_nav == "🌍 模組六：海外翻譯中心":
                     st.success(st.session_state.m6_report_data.get('translation', '無翻譯結果。'))
             with tb:
                 with st.container(border=True, height=650):
-                    st.markdown(st.session_state.m6_report_data.get('ip_report', '無解析報告。
+                    st.markdown(st.session_state.m6_report_data.get('ip_report', '無解析報告。'))
